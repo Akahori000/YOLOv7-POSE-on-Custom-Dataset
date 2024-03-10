@@ -1,0 +1,65 @@
+import numpy as np
+import json
+import os
+
+MARGIN = 30
+
+def convert_coco_to_yolo(coco_json_path, output_dir):
+    # Load COCO JSON file
+    with open(coco_json_path, 'r') as f:
+        coco_data = json.load(f)
+
+    # Create output directory if it doesn't exist
+    if not os.path.exists(output_dir):
+        os.makedirs(output_dir)
+
+    # Iterate over each image in the dataset
+    for image_data in coco_data['images']:
+        image_id = image_data['id']
+        image_name = image_data['file_name']
+        image_width = image_data['width']
+        image_height = image_data['height']
+        keypoints_list = []
+
+        # Find annotations for the current image
+        for annotation in coco_data['annotations']:
+            if annotation['image_id'] == image_id:
+                keypoints = annotation['keypoints']
+                keypoints_list.append(keypoints)
+
+        # Skip images without annotations
+        if not keypoints_list:
+            continue
+
+        # Create YOLO annotation file
+        annotation_file_name = image_id + '.txt'
+        annotation_file_path = os.path.join(output_dir, annotation_file_name)
+        with open(annotation_file_path, 'w') as f:
+            for keypoints in keypoints_list:
+                keypoints = np.array(keypoints)
+                x_center, y_center, _ = keypoints[keypoints > 0]
+                # Normalize bounding box coordinates to range [0, 1]
+                x_center /= image_width
+                y_center /= image_height
+                width = MARGIN/ image_width
+                height = MARGIN / image_height
+
+                # Write the annotation to the YOLO file
+                f.write(f'{0} {round(x_center,6)} {round(y_center,6)} {round(width,6)} {round(height, 6)} ')
+
+                # Append normalized keypoints to the annotation
+                for i in range(0, len(keypoints), 3):
+                    x = round(keypoints[i] / image_width, 6)
+                    y = round(keypoints[i + 1] / image_height, 6)
+                    v = round(keypoints[i + 2], 6)
+                    f.write(f'{x} {y} {v} ')
+                f.write('\n')
+
+    print('Conversion complete.')
+
+
+# Example usage
+coco_json_path = '/workspace/shizuka_labelbox/coco_format.json'
+# coco_json_path = '/workspace/shizuka_labelbox/coco_format_all_in_1line.json'
+output_dir = '/workspace/data/ultrasound/dataset/yolo_debug'
+convert_coco_to_yolo(coco_json_path, output_dir)

@@ -1,0 +1,57 @@
+{
+    // Use IntelliSense to learn about possible attributes.
+    // Hover to view descriptions of existing attributes.
+    // For more information, visit: https://go.microsoft.com/fwlink/?linkid=830387
+    "version": "0.2.0",
+    "configurations": [
+        {
+            "name": "Python: Current File",
+            "type": "python",
+            "request": "launch",
+            "program": "${file}",
+            "console": "integratedTerminal",
+            "justMyCode": false,
+            // "env":{
+            //     "CUDA_VISIBLE_DEVICES":"1",
+            // },
+            "args": [
+                // trainのとき
+                // "--data", 
+                // "data/custom_kpts.yaml", 
+                // "--cfg",
+                // "cfg/yolov7-w6-pose_custom.yaml", 
+                // "--hyp", 
+                // "data/hyp.pose.yaml", 
+                // "--device", 
+                // "0",
+                // "--kpt-label", 
+                // "--epochs",
+                // "200"
+
+
+                //python /workspace/shizuka_keypointdetection/YOLOv7-POSE-on-Custom-Dataset/train.py --data data/custom_kpts.yaml --cfg cfg/yolov7-w6-pose_custom.yaml --hyp data/hyp.pose.yaml --device 1 --kpt-label --epochs 200
+
+                // testのとき
+                "--data", 
+                "data/custom_kpts_test.yaml",
+                // "--img",
+                // "576", // 640 original
+                "--conf",
+                "0.001",
+                "--iou",
+                "0.65",
+                "--device",
+                "0"
+                "--weights",
+                "runs/train/exp9-new_combination1_epoch_200/weights/best.pt",
+                "--kpt-label"
+
+
+
+                // "-api_key", "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJ1c2VySWQiOiJjbHFhbTk4M3YwMHRmMDcwdzE4ODg5NDhyIiwib3JnYW5pemF0aW9uSWQiOiJjbHFhbTk4M2owMHRlMDcwdzg3amdid3dxIiwiYXBpS2V5SWQiOiJjbHNlZm03OWkwMHQ2MDd4dGgwNHA2enk0Iiwic2VjcmV0IjoiZjZmYTMxZjY0Zjg4NTI0YWRmZGEyY2VjMDY1ZmNmODkiLCJpYXQiOjE3MDc0NzAxMDcsImV4cCI6MjMzODYyMjEwN30.v5r9WNHe3VwuIkwmvwsr-Bd3zTSi9QXZPzFETzOac8g",
+                // "-project_id", "cls3a54bb00er07xl1ast3e0a",
+                // "-save_to", "/workspace/shizuka_labelbox/coco-converter/json"
+            ],
+        }
+    ]
+}

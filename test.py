@@ -14,9 +14,11 @@ from utils.datasets import create_dataloader
 from utils.general import coco80_to_coco91_class, check_dataset, check_file, check_img_size, check_requirements, \
     box_iou, non_max_suppression, scale_coords, xyxy2xywh, xywh2xyxy, set_logging, increment_path, colorstr
 from utils.metrics import ap_per_class, ConfusionMatrix
-from utils.plots import plot_images, output_to_target, plot_study_txt
+from utils.plots import plot_images, output_to_target, plot_study_txt, plot_histogram, plot_figure_conf_over_thresh, plot_figure_conf_over_thresh_keys
 from utils.torch_utils import select_device, time_synchronized
 import cv2
+import matplotlib.pyplot as plt
+from sklearn.metrics import roc_auc_score
 
 
 def test(data,
@@ -27,7 +29,7 @@ def test(data,
          iou_thres=0.6,  # for NMS
          save_json=False,
          save_json_kpt=False,
-         single_cls=False,
+         single_cls=False,  # これぜったいfalseの方が良い気がする NMS後にpred[:, 5]=0にしてて…
          augment=False,
          verbose=False,
          model=None,
@@ -114,6 +116,10 @@ def test(data,
     loss = torch.zeros(3, device=device)
     jdict, stats, ap, ap_class, wandb_images = [], [], [], [], []
     #jdict_kpt = [] if kpt_label else None
+    ## shizuka
+    predicted_conf = []
+    gt_label = []
+    ###
     for batch_i, (img, targets, paths, shapes) in enumerate(tqdm(dataloader, desc=s)):
         img = img.to(device, non_blocking=True)
         if dump_img:
@@ -147,13 +153,19 @@ def test(data,
             # Run NMS
             if kpt_label:
                 num_points = (targets.shape[1]//2 - 1)
-                targets[:, 2:] *= torch.Tensor([width, height]*num_points).to(device)  # to pixels
+                targets[:, 2:] *= torch.Tensor([width, height]*num_points).to(device)  # to pixels ピクセル変換
             else:
                 targets[:, 2:] *= torch.Tensor([width, height, width, height]).to(device)  # to pixels
             lb = [targets[targets[:, 0] == i, 1:] for i in range(nb)] if save_hybrid else []  # for autolabelling
             t = time_synchronized()
             out = non_max_suppression(out, conf_thres, iou_thres, labels=lb, multi_label=False, agnostic=single_cls, kpt_label=kpt_label, nc=model.yaml['nc'], nkpt=model.yaml['nkpt'])
             t1 += time_synchronized() - t
+
+            c_out = out.copy()
+            # add shizuka #各画像に対して最も信頼度が高い検出結果のみを選択
+            out = [o[:1] if len(o) else o for o in out] 
+            # for cnt in range(len(out)):
+            #     print(out[cnt][:,4], c_out[cnt][:,4].max())
 
         # Statistics per image
         for si, pred in enumerate(out):
@@ -163,6 +175,10 @@ def test(data,
             #         f.write('./images/test2017/'+path.stem + '.jpg' + '\n')
 
             labels = targets[targets[:, 0] == si, 1:]
+            
+            predicted_conf.append(pred[0][4])
+            gt_label.append(labels[:,0:1])
+
             nl = len(labels)
             tcls = labels[:, 0].tolist() if nl else []  # target class
             path = Path(paths[si])
@@ -272,7 +288,44 @@ def test(data,
             plot_images(img, targets, paths, f, names, kpt_label=kpt_label, nkpt=nkpt, orig_shape=shapes[si])
             f = save_dir / f'{path.stem}_pred.jpg'  # predictions
             #Thread(target=plot_images, args=(img, output_to_target(out), paths, f, names), daemon=True).start()
-            plot_images(img, output_to_target(out), paths, f, names, kpt_label=kpt_label, nkpt=nkpt, steps=3, orig_shape=shapes[si])
+            plot_images(img, output_to_target(out), paths, f, names, kpt_label=kpt_label, nkpt=nkpt, steps=3, orig_shape=shapes[si]) # この時点ではまだ1画像に対するbboxの候補はたくさんある
+
+    # 統計計算 ## shizuka ####################
+    print(torch.tensor(predicted_conf))
+    print(torch.tensor(gt_label))
+    predicted_conf = torch.tensor(predicted_conf)
+    gt_label = torch.tensor(gt_label)
+
+    #--- good+perfect/ poorの2値分類の評価 ---#
+    gt_label_bin= torch.clone(gt_label)
+    # クラス1とクラス2の要素を1に設定
+    gt_label_bin[(gt_label == 1) | (gt_label == 2)] = 1
+    # ROC AUCスコアを計算
+    roc_auc_bin_good = roc_auc_score(gt_label_bin.cpu().numpy(), torch.tensor(predicted_conf).cpu().numpy())
+    print("auc-binary(poor/good+ perfect)", roc_auc_bin_good)
+
+    #--- good+perfect/ poorの2値分類の評価 ---#
+    gt_label_bin_perfect= torch.clone(gt_label)
+    # クラス1とクラス2の要素を1に設定
+    gt_label_bin_perfect[(gt_label == 1)] = 0
+    gt_label_bin_perfect[(gt_label == 2)] = 1
+    # ROC AUCスコアを計算
+    roc_auc_bin_perfect = roc_auc_score(gt_label_bin_perfect.cpu().numpy(), torch.tensor(predicted_conf).cpu().numpy())
+    print("auc-binary(poor+good/perfect)", roc_auc_bin_perfect)
+
+    plot_histogram(predicted_conf, gt_label, save_dir / f'histogram.png')
+    
+    thresh1, thresh2 = 0.37, 1.0
+    plot_figure_conf_over_thresh(predicted_conf, gt_label, dataloader, thresh1, thresh2, save_dir / f'images_over_conf_thresh{thresh1}.png')
+
+    thresh1, thresh2 = 0.34, 0.37
+    plot_figure_conf_over_thresh(predicted_conf, gt_label, dataloader, thresh1, thresh2, save_dir / f'images_over_conf_thresh{thresh1}.png')
+
+    thresh1, thresh2 = 0.0, 0.34
+    plot_figure_conf_over_thresh(predicted_conf, gt_label, dataloader, thresh1, thresh2, save_dir / f'images_over_conf_thresh{thresh1}.png')
+
+
+    #######################################
 
     # Compute statistics
     stats = [np.concatenate(x, 0) for x in zip(*stats)]  # to numpy

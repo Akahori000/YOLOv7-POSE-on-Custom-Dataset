@@ -1,0 +1,12 @@
+
+path: /final_dataset/
+# train: final_dataset/images/train
+val: final_dataset/images/test
+# test: final_dataset/images/test
+
+# number of classes
+nc: 1
+
+names: ['Anatomy']
+
+nkpt: 6

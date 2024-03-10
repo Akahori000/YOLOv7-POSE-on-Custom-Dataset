@@ -16,7 +16,8 @@ import seaborn as sns
 import torch
 import yaml
 from PIL import Image, ImageDraw, ImageFont
-
+import torchvision
+import torchvision.transforms.functional as F
 from utils.general import xywh2xyxy, xyxy2xywh
 from utils.metrics import fitness
 
@@ -86,7 +87,7 @@ def plot_one_box(x, im, color=None, label=None, line_thickness=3, kpt_label=Fals
 
 def plot_skeleton_kpts(im, kpts, steps, orig_shape=None):
     #Plot the skeleton and keypointsfor coco datatset
-    palette = np.array([[255, 128, 0], [255, 153, 255], [102, 205, 102], [0, 0, 255]])
+    palette = np.array([[255, 128, 0], [255, 153, 255], [102, 205, 102], [0, 0, 255], [255, 255, 0], [153, 0, 255]])
 
     # skeleton = [[16, 14], [14, 12], [17, 15], [15, 13], [12, 13], [6, 12],
     #             [7, 13], [6, 7], [6, 8], [7, 9], [8, 10], [9, 11], [2, 3],
@@ -127,7 +128,7 @@ def plot_skeleton_kpts(im, kpts, steps, orig_shape=None):
             continue
         if pos2[0] % 640 == 0 or pos2[1] % 640 == 0 or pos2[0]<0 or pos2[1]<0:
             continue
-        cv2.line(im, pos1, pos2, (int(r), int(g), int(b)), thickness=2)
+        # cv2.line(im, pos1, pos2, (int(r), int(g), int(b)), thickness=2)
 
 
 def plot_one_box_PIL(box, im, color=None, label=None, line_thickness=None):
@@ -196,7 +197,8 @@ def plot_images(images, targets, paths=None, fname='images.jpg', names=None, max
 
     # Check if we should resize
     scale_factor = max_size / max(h, w)
-    if scale_factor < 1:
+    # print("scale_Factor", scale_factor)
+    if scale_factor < 1 or scale_factor > 1:
         h = math.ceil(scale_factor * h)
         w = math.ceil(scale_factor * w)
 
@@ -209,8 +211,8 @@ def plot_images(images, targets, paths=None, fname='images.jpg', names=None, max
         block_y = int(h * (i % ns))
 
         img = img.transpose(1, 2, 0)
-        if scale_factor < 1:
-            img = cv2.resize(img, (w, h))
+        if scale_factor < 1 or scale_factor > 1:    
+            img = cv2.resize(img, (w, h)) 
 
         mosaic[block_y:block_y + h, block_x:block_x + w, :] = img
         if len(targets) > 0:
@@ -272,7 +274,7 @@ def plot_images(images, targets, paths=None, fname='images.jpg', names=None, max
         cv2.rectangle(mosaic, (block_x, block_y), (block_x + w, block_y + h), (255, 255, 255), thickness=3)
 
     if fname:
-        r = min(1280. / max(h, w) / ns, 1.0)  # ratio to limit image size
+        r = min(1280 * 4. / max(h, w) / ns, 1.0)  # ratio to limit image size ## shizuka 4倍にした
         mosaic = cv2.resize(mosaic, (int(ns * w * r), int(ns * h * r)), interpolation=cv2.INTER_AREA)
         #padH = int(orig_shape[1][1][1])
         #padW = int(orig_shape[1][1][0])
@@ -522,3 +524,87 @@ def plot_results(start=0, stop=0, bucket='', id=(), labels=(), save_dir=''):
 
     ax[1].legend()
     fig.savefig(Path(save_dir) / 'results.png', dpi=200)
+
+
+def plot_histogram(predicted_conf, gt_label, path):
+    # 3クラスごとにデータをフィルタリング
+    class0_conf = predicted_conf[gt_label == 0]
+    class1_conf = predicted_conf[gt_label == 1]
+    class2_conf = predicted_conf[gt_label == 2]
+    print("class0:" ,len(class0_conf), "class1:", len(class1_conf), "class2:", len(class2_conf))
+
+    # ヒストグラムの作成
+    plt.hist([class0_conf.numpy(), class1_conf.numpy(), class2_conf.numpy()], bins=20, alpha=1.0, label=['Poor', 'Good', 'Perfect'], histtype='bar')
+    # plt.xlim(0, 1)
+    # レジェンドと軸ラベルの追加
+    plt.legend()
+    plt.xlabel('Confidence Score')
+    plt.ylabel('Number')
+    plt.title('Histogram of Confidence Scores')
+    plt.savefig(path)
+    plt.clf()
+
+def plot_figure_conf_over_thresh(predicted_conf, gt_label, dataloader, thresh1, thresh2, path):
+    
+    # predicted_confが0.8以上で、かつクラス0の画像のインデックスを取得
+    high_conf_indices = ((predicted_conf > thresh1) & (predicted_conf <= thresh2))
+
+    if high_conf_indices.any(): # Trueが含まれているかどうか 
+        true_indices = torch.nonzero(high_conf_indices, as_tuple=True)[0]
+
+        # 抜き出した画像の数と行数を計算
+        num_images = len(true_indices)
+        num_rows = num_images // 5 + int(num_images % 5 != 0)
+
+        # 画像と名前を表示
+        plt.figure(figsize=(50, 10 * num_rows))
+        cnt = 0
+        label_colors = {0: ("poor", "red"), 1: ("good", "green"), 2: ("perfect", "blue")}
+
+        for i in range(len(predicted_conf)):
+            if i in true_indices:
+                image = dataloader.dataset[i][0]
+                name =  os.path.splitext(os.path.basename(dataloader.dataset[i][2]))[0]
+                lbl_cls = dataloader.dataset[i][1][0][1].item() # class categoryは1に入ってくる  0:謎、1:class, 2~5:bbox, 6~keypoints
+                lbl, color = label_colors.get(lbl_cls, ("Invalid score", "black"))
+                plt.subplot(num_rows, 5, cnt + 1)
+                # 画像データがtorch.Tensor形式の場合、表示形式に変換
+                plt.imshow(torchvision.transforms.ToPILImage()(image))
+                plt.axis('off')
+                # 画像の名前をタイトルとして設定
+                plt.title(name + " " + str(lbl) + " conf " + str(round(predicted_conf[i].item(),3)), fontsize=20, color=color)
+                cnt += 1
+        plt.savefig(path)
+        plt.clf()
+
+def plot_figure_conf_over_thresh_keys(predicted_conf, gt_label, dataloader, thresh1, thresh2, path, nkpt=6):
+    
+    # predicted_confが0.8以上で、かつクラス0の画像のインデックスを取得
+    high_conf_indices = ((predicted_conf > thresh1) & (predicted_conf <= thresh2))
+
+    true_indices = torch.nonzero(high_conf_indices, as_tuple=True)[0]
+
+    # 抜き出した画像の数と行数を計算
+    num_images = len(true_indices)
+    num_rows = num_images // 5 + int(num_images % 5 != 0)
+
+    # 画像と名前を表示
+    plt.figure(figsize=(50, 10 * num_rows))
+    cnt = 0
+    label_colors = {0: ("poor", "red"), 1: ("good", "green"), 2: ("perfect", "blue")}
+
+    for i in range(len(predicted_conf)):
+        if i in true_indices:
+            image = dataloader.dataset[i][0]
+            name =  os.path.splitext(os.path.basename(dataloader.dataset[i][2]))[0]
+            lbl_cls = dataloader.dataset[i][1][0][1].item() # class categoryは1に入ってくる  0:謎、1:class, 2~5:bbox, 6~keypoints
+            lbl, color = label_colors.get(lbl_cls, ("Invalid score", "black"))
+            plt.subplot(num_rows, 5, cnt + 1)
+            # 画像データがtorch.Tensor形式の場合、表示形式に変換
+            plt.imshow(torchvision.transforms.ToPILImage()(image))
+            plt.axis('off')
+            # 画像の名前をタイトルとして設定
+            plt.title(name + " " + str(lbl) + " conf " + str(round(predicted_conf[i].item(),3)), fontsize=20, color=color)
+            cnt += 1
+    plt.savefig(path)
+    plt.clf()

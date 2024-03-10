@@ -5,8 +5,8 @@ val: final_dataset/images/val
 test: final_dataset/images/test
 
 # number of classes
-nc: 3
+nc: 1
 
-names: ["Poor", "Good", "Perfect"]
+names: ['Anatomy']
 
 nkpt: 6

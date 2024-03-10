@@ -371,7 +371,7 @@ def resample_segments(segments, n=1000):
     return segments
 
 
-def scale_coords(img1_shape, coords, img0_shape, ratio_pad=None, kpt_label=False, step=2):
+def scale_coords(img1_shape, coords, img0_shape, ratio_pad=None, kpt_label=False, step=2):  # バウンディングボックスやキーポイントの座標を一つの画像サイズから別の画像サイズにスケーリング
     # Rescale coords (xyxy) from img1_shape to img0_shape
     if ratio_pad is None:  # calculate from img0_shape
         gain = min(img1_shape[0] / img0_shape[0], img1_shape[1] / img0_shape[1])  # gain  = old / new
@@ -492,7 +492,7 @@ def non_max_suppression(prediction, conf_thres=0.03, iou_thres=0.30, classes=Non
     """
     if nc is None:
         nc = prediction.shape[2] - 5  if not kpt_label else prediction.shape[2] - 5 - nkpt*3 # number of classes
-    xc = prediction[..., 4] > conf_thres  # candidates
+    xc = prediction[..., 4] > conf_thres  # candidates (conf_thresh以上だったか否か、True/False値がが返される(boolのマスク))
 
     # Settings
     min_wh, max_wh = 2, 4096  # (pixels) minimum and maximum box width and height
@@ -504,14 +504,14 @@ def non_max_suppression(prediction, conf_thres=0.03, iou_thres=0.30, classes=Non
     merge = False  # use merge-NMS
 
     t = time.time()
-    output = [torch.zeros((0,6), device=prediction.device)] * prediction.shape[0]
+    output = [torch.zeros((0,6), device=prediction.device)] * prediction.shape[0] # 6…= bbox(4), conf_score(1), class_id(1)
     for xi, x in enumerate(prediction):  # image index, image inference
         # Apply constraints
         # x[((x[..., 2:4] < min_wh) | (x[..., 2:4] > max_wh)).any(1), 4] = 0  # width-height
-        x = x[xc[xi]]  # confidence
+        x = x[xc[xi]]  # confidence　conf_threshを超えたanchorのみを抽出  x:[1,25500,26]→x[超えた数, 26]へ
 
         # Cat apriori labels if autolabelling
-        if labels and len(labels[xi]):
+        if labels and len(labels[xi]):  #shizuka labelsが[]なので入ってこない
             l = labels[xi]
             v = torch.zeros((len(l), nc + 5), device=x.device)
             v[:, :4] = l[:, 1:5]  # box
@@ -539,7 +539,7 @@ def non_max_suppression(prediction, conf_thres=0.03, iou_thres=0.30, classes=Non
                 x = torch.cat((box, conf, j.float()), 1)[conf.view(-1) > conf_thres]
             else:
                 kpts = x[:, 5+nc:]
-                conf, j = x[:, 5:5+nc].max(1, keepdim=True)
+                conf, j = x[:, 5:5+nc].max(1, keepdim=True) # クラス確率の最大値conf とそのインデックス[0,1,2]
                 x = torch.cat((box, conf, j.float(), kpts), 1)[conf.view(-1) > conf_thres]
 
 
@@ -564,7 +564,7 @@ def non_max_suppression(prediction, conf_thres=0.03, iou_thres=0.30, classes=Non
         i = torchvision.ops.nms(boxes, scores, iou_thres)  # NMS
         if i.shape[0] > max_det:  # limit detections
             i = i[:max_det]
-        if merge and (1 < n < 3E3):  # Merge NMS (boxes merged using weighted mean)
+        if merge and (1 < n < 3E3):  # Merge NMS (boxes merged using weighted mean) # マージバウンディングボックス　したいときに使うらしい
             # update boxes as boxes(i,4) = weights(i,n) * boxes(n,4)
             iou = box_iou(boxes[i], boxes) > iou_thres  # iou matrix
             weights = iou * scores[None]  # box weights
